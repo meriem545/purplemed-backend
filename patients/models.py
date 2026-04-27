@@ -1,9 +1,9 @@
 from django.db import models
-from django.contrib.auth import get_user_model
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.utils import timezone
+from datetime import datetime, timedelta
 
-User = get_user_model()
 
 
 class Patient(models.Model):
@@ -15,11 +15,14 @@ class Patient(models.Model):
     
     GENDER_CHOICES = [
         ('M', 'Male'),
-        ('F', 'Female'),
-      
+        ('F', 'Female'),    
     ]
     
-    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='patient_profile')
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='patient_profile' 
+    )
     date_of_birth = models.DateField()
     gender = models.CharField(max_length=1, choices=GENDER_CHOICES)
     blood_type = models.CharField(max_length=3, choices=BLOOD_TYPES, blank=True, null=True)
@@ -36,8 +39,11 @@ class Patient(models.Model):
     is_active = models.BooleanField(default=True)
     
     def __str__(self):
-        return f"{self.user.get_full_name()} - {self.user.email}"
-    
+      name = self.user.email
+      if hasattr(self.user, 'first_name') and hasattr(self.user, 'last_name'):
+        if self.user.first_name or self.user.last_name:
+            name = f"{self.user.first_name} {self.user.last_name}".strip()
+      return f"{name}"
     @property
     def age(self):
         today = timezone.now().date()
@@ -65,7 +71,11 @@ class DoctorProfile(models.Model):
         ('EMR', 'Emergency Medicine'),
     ]
     
-    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='doctor_profile')
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='doctor_profile'
+    )
     specialization = models.CharField(max_length=3, choices=SPECIALIZATIONS)
     license_number = models.CharField(max_length=50, unique=True)
     years_of_experience = models.IntegerField()
@@ -77,8 +87,11 @@ class DoctorProfile(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     
     def __str__(self):
-        return f"Dr. {self.user.get_full_name()} - {self.get_specialization_display()}"
-    
+      if hasattr(self.user, 'first_name') and hasattr(self.user, 'last_name'):
+        name = f"{self.user.first_name} {self.user.last_name}".strip()
+        if name:
+            return f"Dr. {name}"
+      return f"Dr. {self.user.email}"
     class Meta:
         indexes = [
             models.Index(fields=['specialization']),
@@ -127,8 +140,9 @@ class Appointment(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
     
     def __str__(self):
-        return f"{self.patient} with {self.doctor} on {self.appointment_date} at {self.start_time}"
-    
+      patient_name = self.patient.user.email
+      doctor_name = self.doctor.user.email
+      return f"Appointment: {patient_name} with {doctor_name} on {self.appointment_date}"
     def clean(self):
         """Validate appointment before saving"""
         if self.appointment_date < timezone.now().date():

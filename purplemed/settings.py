@@ -44,6 +44,7 @@ INSTALLED_APPS = [
     
     # My apps
     'patients',
+    'accounts',
 ]
 
 MIDDLEWARE = [
@@ -132,7 +133,10 @@ REST_FRAMEWORK = {
         'rest_framework.authentication.SessionAuthentication',
         'rest_framework.authentication.TokenAuthentication',
     ],
-   'DEFAULT_PERMISSION_CLASSES': [
-    'rest_framework.permissions.AllowAny',
-],
+    'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework.permissions.AllowAny',
+    ],
+     'DEFAULT_AUTHENTICATION_CLASSES': [],
 }
+# Custom User Model (from Dev 1's accounts app)
+AUTH_USER_MODEL = 'accounts.User'

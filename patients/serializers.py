@@ -23,7 +23,13 @@ class PatientSerializer(serializers.ModelSerializer):
         read_only_fields = ['created_at']
     
     def get_user_name(self, obj):
-        return obj.user.get_full_name()
+        """Get user's full name or email"""
+        if hasattr(obj.user, 'get_full_name') and obj.user.get_full_name():
+            return obj.user.get_full_name()
+        elif hasattr(obj.user, 'email') and obj.user.email:
+            return obj.user.email
+        else:
+            return str(obj.user)
 
 
 class DoctorProfileSerializer(serializers.ModelSerializer):
@@ -41,7 +47,12 @@ class DoctorProfileSerializer(serializers.ModelSerializer):
         read_only_fields = ['created_at']
     
     def get_user_name(self, obj):
-        return obj.user.get_full_name()
+        if hasattr(obj.user, 'get_full_name') and obj.user.get_full_name():
+            return obj.user.get_full_name()
+        elif hasattr(obj.user, 'email') and obj.user.email:
+            return obj.user.email
+        else:
+            return str(obj.user)
 
 
 class ScheduleSerializer(serializers.ModelSerializer):
@@ -56,22 +67,12 @@ class ScheduleSerializer(serializers.ModelSerializer):
 
 
 class AppointmentSerializer(serializers.ModelSerializer):
-    patient_name = serializers.CharField(source='patient.user.get_full_name', read_only=True)
-    doctor_name = serializers.CharField(source='doctor.user.get_full_name', read_only=True)
-    doctor_specialization = serializers.CharField(source='doctor.get_specialization_display', read_only=True)
-    status_display = serializers.CharField(source='get_status_display', read_only=True)
+    patient_name = serializers.CharField(source='patient.user.email', read_only=True)
+    doctor_name = serializers.CharField(source='doctor.user.email', read_only=True)
     
     class Meta:
         model = Appointment
-        fields = [
-            'id', 'patient', 'patient_name', 'doctor', 'doctor_name',
-            'doctor_specialization', 'appointment_date', 'start_time',
-            'end_time', 'status', 'status_display', 'reason', 'notes',
-            'is_emergency', 'created_at', 'updated_at'
-        ]
-        read_only_fields = ['created_at', 'updated_at']
-
-
+        fields = '__all__'
 class AppointmentCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Appointment
