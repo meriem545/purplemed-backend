@@ -1,4 +1,3 @@
-from django.db import models
 from django.core.exceptions import ValidationError
 from django.utils import timezone
 from datetime import datetime, timedelta
@@ -10,9 +9,6 @@ class AppointmentService:
     
     @staticmethod
     def check_availability(doctor_id, appointment_date, start_time, end_time, exclude_appointment_id=None):
-        """Check if doctor is available at given time"""
-        from .models import DoctorProfile, Appointment, Schedule
-        
         try:
             doctor = DoctorProfile.objects.get(id=doctor_id)
         except DoctorProfile.DoesNotExist:
@@ -31,39 +27,33 @@ class AppointmentService:
         if not schedule_exists:
             return False, "Doctor not available at this time"
         
-        conflicting_appointments = Appointment.objects.filter(
+        conflicting = Appointment.objects.filter(
             doctor=doctor,
             appointment_date=appointment_date,
             status__in=['SCHEDULED', 'CONFIRMED', 'IN_PROGRESS']
         )
         
         if exclude_appointment_id:
-            conflicting_appointments = conflicting_appointments.exclude(id=exclude_appointment_id)
+            conflicting = conflicting.exclude(id=exclude_appointment_id)
         
-        for appointment in conflicting_appointments:
-            if (start_time < appointment.end_time and end_time > appointment.start_time):
-                return False, f"Conflict with existing appointment at {appointment.start_time}"
+        for apt in conflicting:
+            if start_time < apt.end_time and end_time > apt.start_time:
+                return False, f"Conflict with existing appointment at {apt.start_time}"
         
-        today_appointments = conflicting_appointments.filter(
-            appointment_date=appointment_date
-        ).count()
-        
-        if today_appointments >= doctor.max_patients_per_day:
-            return False, f"Doctor has reached maximum {doctor.max_patients_per_day} patients for today"
+        today_count = conflicting.filter(appointment_date=appointment_date).count()
+        if today_count >= doctor.max_patients_per_day:
+            return False, f"Doctor has reached maximum {doctor.max_patients_per_day} patients"
         
         return True, "Slot available"
     
     @staticmethod
     def get_available_slots(doctor_id, date):
-        from .models import DoctorProfile, Appointment, Schedule
-        
         try:
             doctor = DoctorProfile.objects.get(id=doctor_id)
         except DoctorProfile.DoesNotExist:
             return []
         
         day_of_week = date.weekday()
-        
         schedules = Schedule.objects.filter(
             doctor=doctor,
             day_of_week=day_of_week,
@@ -73,39 +63,37 @@ class AppointmentService:
         if not schedules.exists():
             return []
         
-        booked_appointments = Appointment.objects.filter(
+        booked = Appointment.objects.filter(
             doctor=doctor,
             appointment_date=date,
             status__in=['SCHEDULED', 'CONFIRMED', 'IN_PROGRESS']
         ).values_list('start_time', 'end_time')
         
-        available_slots = []
-        duration_minutes = doctor.consultation_duration
+        slots = []
+        duration = doctor.consultation_duration
         
         for schedule in schedules:
-            current_time = datetime.combine(date, schedule.start_time)
-            end_time = datetime.combine(date, schedule.end_time)
+            current = datetime.combine(date, schedule.start_time)
+            end = datetime.combine(date, schedule.end_time)
             
-            while current_time + timedelta(minutes=duration_minutes) <= end_time:
-                slot_start = current_time.time()
-                slot_end = (current_time + timedelta(minutes=duration_minutes)).time()
+            while current + timedelta(minutes=duration) <= end:
+                slot_start = current.time()
+                slot_end = (current + timedelta(minutes=duration)).time()
                 
                 is_booked = any(
-                    booked_start <= slot_start < booked_end or
-                    booked_start < slot_end <= booked_end or
-                    (slot_start <= booked_start and slot_end >= booked_end)
-                    for booked_start, booked_end in booked_appointments
+                    bs <= slot_start < be or bs < slot_end <= be
+                    for bs, be in booked
                 )
                 
                 if not is_booked:
-                    available_slots.append({
+                    slots.append({
                         'start_time': slot_start.strftime('%H:%M'),
                         'end_time': slot_end.strftime('%H:%M')
                     })
                 
-                current_time += timedelta(minutes=duration_minutes)
+                current += timedelta(minutes=duration)
         
-        return available_slots
+        return slots
     
     @staticmethod
     def reschedule_appointment(appointment_id, new_date, new_start_time, new_end_time, user):
@@ -138,9 +126,10 @@ class PatientService:
     def get_patient_history(patient_id, include_appointments=True, include_medical=True):
         patient = Patient.objects.get(id=patient_id)
         
+        # ONLY use email - no first_name, last_name, or get_full_name
         history = {
             'patient_info': {
-                'name': patient.user.get_full_name(),
+                'name': patient.user.email,
                 'age': patient.age,
                 'blood_type': patient.blood_type,
                 'allergies': patient.allergies,
@@ -157,7 +146,7 @@ class PatientService:
                 {
                     'id': apt.id,
                     'date': apt.appointment_date,
-                    'doctor': apt.doctor.user.get_full_name(),
+                    'doctor': apt.doctor.user.email,
                     'specialization': apt.doctor.get_specialization_display(),
                     'reason': apt.reason,
                     'status': apt.status,
@@ -174,7 +163,6 @@ class PatientService:
     @staticmethod
     def get_upcoming_appointments(patient_id):
         today = timezone.now().date()
-        
         return Appointment.objects.filter(
             patient_id=patient_id,
             appointment_date__gte=today,
@@ -184,13 +172,13 @@ class PatientService:
     @staticmethod
     def get_patient_statistics(patient_id):
         appointments = Appointment.objects.filter(patient_id=patient_id)
-        
+        last_visit = appointments.filter(status='COMPLETED').order_by('-appointment_date').first()
         return {
             'total_appointments': appointments.count(),
             'completed_appointments': appointments.filter(status='COMPLETED').count(),
             'cancelled_appointments': appointments.filter(status='CANCELLED').count(),
             'no_shows': appointments.filter(status='NO_SHOW').count(),
-            'last_visit': appointments.filter(status='COMPLETED').order_by('-appointment_date').first()
+            'last_visit_date': last_visit.appointment_date if last_visit else None
         }
 
 
@@ -222,7 +210,6 @@ class DoctorAvailabilityService:
     @staticmethod
     def update_doctor_schedule(doctor_id, schedule_data):
         doctor = DoctorProfile.objects.get(id=doctor_id)
-        
         Schedule.objects.filter(doctor=doctor).delete()
         
         for day_schedule in schedule_data:
